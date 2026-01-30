@@ -3,6 +3,7 @@ from disnake.ext import commands
 import os
 
 from utils.console.logger_util import logger
+from utils.discord.bot.link_util import get_link_for_guild, load_server_links, save_server_links
 from utils.discord.role_management.role_check_util import check_trust_access
 
 link_file_path = "link/link.txt"
@@ -14,11 +15,6 @@ def format_link(link: str) -> str:
     return link
 
 
-status_link = "https://example.com"
-if os.path.exists(link_file_path):
-    with open(link_file_path, "r", encoding="utf-8") as f:
-        status_link = format_link(f.read())
-
 class VerifyButton(disnake.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -29,6 +25,7 @@ class VerifyButton(disnake.ui.View):
         custom_id="verify_button"
     )
     async def verify(self, button, inter: disnake.MessageInteraction):
+        link = get_link_for_guild(inter.guild.id)
         embed = disnake.Embed(
             description="**This server is protected by Double Counter, anti alt account and VPN bot. You must verify to access the server.**",
             color=disnake.Color.from_rgb(104, 157, 197)
@@ -41,7 +38,7 @@ class VerifyButton(disnake.ui.View):
         )
         embed.add_field(
             name="Status",
-            value=f"[Click me to verify!]({status_link})",
+            value=f"[Click me to verify!]({link})",
             inline=True
         )
         embed.add_field(
@@ -96,6 +93,7 @@ class VerifyCog(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member: disnake.Member):
         try:
+            link = get_link_for_guild(member.guild.id)
             embed = disnake.Embed(
                 description="**This server is protected by Double Counter, anti alt account and VPN bot. You must verify to access the server.**",
                 color=disnake.Color.from_rgb(104, 157, 197)
@@ -106,11 +104,7 @@ class VerifyCog(commands.Cog):
                 value=member.guild.name,
                 inline=False
             )
-            embed.add_field(
-                name="Status",
-                value=f"[Click me to verify!]({status_link})",
-                inline=True
-            )
+            embed.add_field("Status", f"[Click me to verify!]({link})", inline=True)
             embed.add_field(
                 name="By clicking, you accept our",
                 value="[Privacy policy](https://docs.doublecounter.gg/legal)",
@@ -132,21 +126,48 @@ class VerifyCog(commands.Cog):
 
     @commands.slash_command(
         name="change_link",
-        description="Change the verification link"
+        description="Change global verification link"
     )
-    async def change_link(self, inter: disnake.ApplicationCommandInteraction, link: str):
+    async def change_link(
+            self,
+            inter: disnake.ApplicationCommandInteraction,
+            link: str
+    ):
         if not await check_trust_access(inter):
             return
 
-        global status_link
-        status_link = format_link(link)
+        link = format_link(link)
 
         os.makedirs(os.path.dirname(link_file_path), exist_ok=True)
-
         with open(link_file_path, "w", encoding="utf-8") as f:
-            f.write(status_link)
+            f.write(link)
 
-        await inter.response.send_message(f"Status link updated to: {status_link}", ephemeral=True)
+        await inter.response.send_message(
+            f"Global verification link updated:\n{link}",
+            ephemeral=True
+        )
+
+    @commands.slash_command(
+        name="server",
+        description="Set custom verification link for this server"
+    )
+    async def server(
+            self,
+            inter: disnake.ApplicationCommandInteraction,
+            link: str
+    ):
+        if not await check_trust_access(inter):
+            return
+
+        links = load_server_links()
+        links[inter.guild.id] = format_link(link)
+        save_server_links(links)
+
+        await inter.response.send_message(
+            f"Custom link set for this server:\n{links[inter.guild.id]}",
+            ephemeral=True
+        )
+
 
 def setup(bot):
     bot.add_cog(VerifyCog(bot))
